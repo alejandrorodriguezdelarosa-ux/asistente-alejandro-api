@@ -1,0 +1,51 @@
+# docker-compose.yml — para desplegar en Dokploy
+#
+# Dokploy se encarga de:
+#   - Construir la imagen a partir del Dockerfile
+#   - Inyectar las variables de entorno (configuradas en su UI)
+#   - Adjuntar el contenedor a la red de Traefik (suele llamarse "dokploy-network")
+#
+# Si el nombre de la red de Traefik en tu Dokploy NO es "dokploy-network",
+# cámbialo abajo (Claude Code puede verificarlo con:
+#   docker network ls | grep -i 'dokploy\|traefik'
+# )
+
+services:
+  asistente:
+    build: .
+    restart: unless-stopped
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://portafolio.xn--ptimoia-k0a.es}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_KEY=${SUPABASE_KEY:-}
+    # ChromaDB persistente entre redeploys (evita reindexar cada vez)
+    volumes:
+      - chroma_data:/app/chroma_db
+    networks:
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+
+      # Router HTTPS
+      - "traefik.http.routers.asistente.rule=Host(`api.xn--ptimoia-k0a.es`)"
+      - "traefik.http.routers.asistente.entrypoints=websecure"
+      - "traefik.http.routers.asistente.tls=true"
+      - "traefik.http.routers.asistente.tls.certresolver=letsencrypt"
+
+      # Servicio: a qué puerto interno del contenedor enviar el tráfico
+      - "traefik.http.services.asistente.loadbalancer.server.port=8000"
+
+      # Redirect HTTP -> HTTPS
+      - "traefik.http.routers.asistente-http.rule=Host(`api.xn--ptimoia-k0a.es`)"
+      - "traefik.http.routers.asistente-http.entrypoints=web"
+      - "traefik.http.routers.asistente-http.middlewares=asistente-redirect"
+      - "traefik.http.middlewares.asistente-redirect.redirectscheme.scheme=https"
+
+volumes:
+  chroma_data:
+
+networks:
+  dokploy-network:
+    external: true
